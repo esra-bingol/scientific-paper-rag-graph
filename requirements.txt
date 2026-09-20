@@ -1,0 +1,16 @@
+# Python 3.11+ gerekir.
+# Her satır: ne işe yarar, neden bu kütüphane?
+
+arxiv            # arXiv API istemcisi; makale metadata ve PDF indirme için resmi olmayan ama yaygın yol
+pymupdf          # PDF'ten metin çıkarma; PyPDF2'ye göre tablolar ve layout'ta daha dayanıklı
+chromadb         # Yerel vektör veritabanı; harici servis olmadan embedding araması için
+openai           # Embedding ve LLM çağrıları; OpenAI SDK
+langchain        # RAG zincirleri ve prompt şablonları; tekerleği yeniden icat etmemek için
+langchain-community  # Chroma ve diğer topluluk entegrasyonları LangChain çekirdeğinden ayrıldı
+networkx         # Atıf/yazar grafı; Neo4j kurmadan bellek içi graph denemek için
+python-dotenv    # .env dosyasından API anahtarını okur; anahtarı koda gömmemek için
+tqdm             # Uzun döngülerde ilerleme çubuğu; indirme ve chunking'de ne olduğunu görmek için
+requests         # HTTP istekleri; GROBID ve OpenAlex gibi REST API'ler için
+diskcache        # Disk tabanlı cache; aynı retrieval/LLM çağrısını tekrar ödememek için
+rapidfuzz        # Hızlı string benzerliği; entity resolution'da yazar/kurum eşleştirme için
+pandas           # Tablo verisi; eval metriklerini (recall@k, faithfulness) raporlamak için

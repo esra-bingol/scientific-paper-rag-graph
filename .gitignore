@@ -1,0 +1,14 @@
+# Ham veri ve üretilen çıktılar repoya girmez
+data/
+
+# API anahtarı asla commit edilmez
+.env
+
+# Python derleme artıkları
+__pycache__/
+
+# Retrieval/LLM önbelleği (diskcache)
+cache/
+
+# PDF dosyaları büyük ve lisanslı olabilir
+*.pdf
