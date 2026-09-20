@@ -6,6 +6,7 @@ pymupdf          # PDF'ten metin çıkarma; PyPDF2'ye göre tablolar ve layout't
 chromadb         # Yerel vektör veritabanı; harici servis olmadan embedding araması için
 openai           # Embedding ve LLM çağrıları; OpenAI SDK
 langchain        # RAG zincirleri ve prompt şablonları; tekerleği yeniden icat etmemek için
+langchain-text-splitters  # RecursiveCharacterTextSplitter burada; langchain 1.x çekirdeğinden ayrıldı
 langchain-community  # Chroma ve diğer topluluk entegrasyonları LangChain çekirdeğinden ayrıldı
 networkx         # Atıf/yazar grafı; Neo4j kurmadan bellek içi graph denemek için
 python-dotenv    # .env dosyasından API anahtarını okur; anahtarı koda gömmemek için
