@@ -10,5 +10,8 @@ __pycache__/
 # Retrieval/LLM önbelleği (diskcache)
 cache/
 
+# Chroma kalıcı vektör indeksi (yeniden üretilebilir)
+chroma_db/
+
 # PDF dosyaları büyük ve lisanslı olabilir
 *.pdf
