@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import os
 import time
 from pathlib import Path
@@ -107,34 +108,36 @@ def format_context(hits: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
+_COST_MOD = None
+
+
+def _cost_mod():
+    global _COST_MOD
+    if _COST_MOD is None:
+        path = Path(__file__).resolve().parent / "12_cost_report.py"
+        spec = importlib.util.spec_from_file_location("cost_report", path)
+        if spec is None or spec.loader is None:
+            raise ImportError("12_cost_report.py yüklenemedi")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _COST_MOD = module
+    return _COST_MOD
+
+
 def embed_question(client: OpenAI, cache: Cache, question: str) -> list[float]:
     key = embedding_cache_key(question)
     cached = cache.get(key)
-    if cached is not None:
-        print("Embedding cache: HIT")
-        return cached
-    print("Embedding cache: MISS (OpenAI)")
-    response = client.embeddings.create(model=EMBEDDING_MODEL, input=question)
-    vector = response.data[0].embedding
-    cache.set(key, vector)
-    return vector
+    print("Embedding cache: HIT" if cached is not None else "Embedding cache: MISS (OpenAI)")
+    return _cost_mod().logged_embed(
+        client, cache, question, EMBEDDING_MODEL, key, "embed_query"
+    )
 
 
 def chat_answer(client: OpenAI, cache: Cache, prompt: str) -> str:
     key = llm_cache_key(prompt)
     cached = cache.get(key)
-    if cached is not None:
-        print("LLM cache: HIT")
-        return str(cached)
-    print("LLM cache: MISS (OpenAI)")
-    response = client.chat.completions.create(
-        model=CHAT_MODEL,
-        temperature=0,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = (response.choices[0].message.content or "").strip()
-    cache.set(key, text)
-    return text
+    print("LLM cache: HIT" if cached is not None else "LLM cache: MISS (OpenAI)")
+    return _cost_mod().logged_chat(client, cache, prompt, CHAT_MODEL, key, "query")
 
 
 def main() -> None:

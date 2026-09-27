@@ -21,6 +21,7 @@ recall@k / faithfulness: retrieval yok; n/a.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -149,19 +150,27 @@ def normalize_record(arxiv_id: str, fallback_title: str, raw: dict) -> dict:
     }
 
 
+_COST_MOD = None
+
+
+def _cost_mod():
+    global _COST_MOD
+    if _COST_MOD is None:
+        path = Path(__file__).resolve().parent / "12_cost_report.py"
+        spec = importlib.util.spec_from_file_location("cost_report", path)
+        if spec is None or spec.loader is None:
+            raise ImportError("12_cost_report.py yüklenemedi")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _COST_MOD = module
+    return _COST_MOD
+
+
 def chat_cached(client: OpenAI, cache: Cache, prompt: str) -> str:
     key = llm_cache_key(prompt)
-    cached = cache.get(key)
-    if cached is not None:
-        return str(cached)
-    response = client.chat.completions.create(
-        model=CHAT_MODEL,
-        temperature=0,
-        messages=[{"role": "user", "content": prompt}],
+    return _cost_mod().logged_chat(
+        client, cache, prompt, CHAT_MODEL, key, "entity_extraction"
     )
-    text = (response.choices[0].message.content or "").strip()
-    cache.set(key, text)
-    return text
 
 
 def extract_one(

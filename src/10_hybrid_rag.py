@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import pickle
@@ -138,34 +139,42 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def chat_cached(client: OpenAI, cache: Cache, prompt: str) -> str:
+_COST_MOD = None
+
+
+def _cost_mod():
+    """12_cost_report: jsonl token/maliyet. Dosya adı rakamlı, importlib."""
+    global _COST_MOD
+    if _COST_MOD is None:
+        path = Path(__file__).resolve().parent / "12_cost_report.py"
+        spec = importlib.util.spec_from_file_location("cost_report", path)
+        if spec is None or spec.loader is None:
+            raise ImportError("12_cost_report.py yüklenemedi")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _COST_MOD = module
+    return _COST_MOD
+
+
+def chat_cached(client: OpenAI, cache: Cache, prompt: str, stage: str = "query") -> str:
     key = llm_cache_key(prompt)
     cached = cache.get(key)
-    if cached is not None:
-        print("LLM cache: HIT")
-        return str(cached)
-    print("LLM cache: MISS (OpenAI)")
-    response = client.chat.completions.create(
-        model=CHAT_MODEL,
-        temperature=0,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = (response.choices[0].message.content or "").strip()
-    cache.set(key, text)
-    return text
+    print("LLM cache: HIT" if cached is not None else "LLM cache: MISS (OpenAI)")
+    return _cost_mod().logged_chat(client, cache, prompt, CHAT_MODEL, key, stage)
 
 
-def embed_question(client: OpenAI, cache: Cache, question: str) -> list[float]:
+def embed_question(
+    client: OpenAI,
+    cache: Cache,
+    question: str,
+    stage: str = "embed_query",
+) -> list[float]:
     key = embedding_cache_key(question)
     cached = cache.get(key)
-    if cached is not None:
-        print("Embedding cache: HIT")
-        return cached
-    print("Embedding cache: MISS (OpenAI)")
-    response = client.embeddings.create(model=EMBEDDING_MODEL, input=question)
-    vector = response.data[0].embedding
-    cache.set(key, vector)
-    return vector
+    print("Embedding cache: HIT" if cached is not None else "Embedding cache: MISS (OpenAI)")
+    return _cost_mod().logged_embed(
+        client, cache, question, EMBEDDING_MODEL, key, stage
+    )
 
 
 def extract_json_object(raw: str) -> dict:
@@ -668,7 +677,10 @@ def main() -> None:
     with Cache(str(EMBED_CACHE_DIR)) as embed_cache, Cache(str(LLM_CACHE_DIR)) as llm_cache:
         try:
             raw_entities = chat_cached(
-                openai_client, llm_cache, ENTITY_PROMPT.format(question=question)
+                openai_client,
+                llm_cache,
+                ENTITY_PROMPT.format(question=question),
+                stage="entity_extraction",
             )
             entities = normalize_entities(extract_json_object(raw_entities))
         except Exception as exc:
@@ -732,7 +744,7 @@ def main() -> None:
         )
         try:
             llm_started = time.perf_counter()
-            answer = chat_cached(openai_client, llm_cache, prompt)
+            answer = chat_cached(openai_client, llm_cache, prompt, stage="query")
             llm_seconds = time.perf_counter() - llm_started
         except Exception as exc:
             print(f"HATA: LLM: {exc}")

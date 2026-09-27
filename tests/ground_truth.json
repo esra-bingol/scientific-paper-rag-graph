@@ -1,0 +1,68 @@
+{
+  "_meta": {
+    "purpose": "Şablon. q1–q10 soruları baseline ile aynı; relevant_* ve keywords sen doldur.",
+    "chunk_id": "{arxiv_id}#{n}  ör. 2411.07602v2#3  (külliyat id'leri versionlu: 1910.13634v1)",
+    "empty_list": "henüz yok / negatif (ör. q4 Esra → papers [])",
+    "eval": "recall@k = |relevant ∩ retrieved| / |relevant|; faithfulness ayrı judge"
+  },
+  "q1": {
+    "question": "2023'ten sonra yayımlanan makalelerin arXiv id'lerini listele.",
+    "relevant_chunks": [],
+    "relevant_papers": [],
+    "expected_answer_keywords": []
+  },
+  "q2": {
+    "question": "2020'den önce çıkmış külliyattaki Transformer makalelerinin başlıkları nedir?",
+    "relevant_chunks": [],
+    "relevant_papers": [],
+    "expected_answer_keywords": []
+  },
+  "q3": {
+    "question": "Sadece 2025 tarihli makalelerde kuantum veya fiziksel Transformer modeli var mı?",
+    "relevant_chunks": [],
+    "relevant_papers": [],
+    "expected_answer_keywords": []
+  },
+  "q4": {
+    "question": "Esra Bingöl'ün bu koleksiyondaki makaleleri hangileri?",
+    "relevant_chunks": [],
+    "relevant_papers": [],
+    "expected_answer_keywords": []
+  },
+  "q5": {
+    "question": "Li soyadlı yazarların tüm makalelerini listele.",
+    "relevant_chunks": [],
+    "relevant_papers": [],
+    "expected_answer_keywords": []
+  },
+  "q6": {
+    "question": "Zhao Song hangi yıl hangi makaleyi yayımlamış?",
+    "relevant_chunks": [],
+    "relevant_papers": [],
+    "expected_answer_keywords": []
+  },
+  "q7": {
+    "question": "Attention is All You Need'i (Vaswani et al. 2017) eleştiren veya sınırlarını kanıtlayan makaleler hangileri?",
+    "relevant_chunks": [],
+    "relevant_papers": [],
+    "expected_answer_keywords": []
+  },
+  "q8": {
+    "question": "Vanilla Transformer'ı indoor oda sıcaklığı tahmininde yetersiz bulup değiştiren çalışma hangisi?",
+    "relevant_chunks": [],
+    "relevant_papers": [],
+    "expected_answer_keywords": []
+  },
+  "q9": {
+    "question": "Hailiang Li'nin yazdığı sinüzoidal positional encoding iyileştirmesi, Jan Steckel'in EchoPT modelinde kullanılmış mı?",
+    "relevant_chunks": [],
+    "relevant_papers": [],
+    "expected_answer_keywords": []
+  },
+  "q10": {
+    "question": "Zhao Song'un yazdığı RoPE karmaşıklık sonucunun, Alfredo V Clemente'nin indoor Transformer çalışmasına etkisi nedir?",
+    "relevant_chunks": [],
+    "relevant_papers": [],
+    "expected_answer_keywords": []
+  }
+}

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -70,11 +71,28 @@ def batched(items: list, size: int) -> list[list]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
+_COST_MOD = None
+
+
+def _cost_mod():
+    global _COST_MOD
+    if _COST_MOD is None:
+        path = Path(__file__).resolve().parent / "12_cost_report.py"
+        spec = importlib.util.spec_from_file_location("cost_report", path)
+        if spec is None or spec.loader is None:
+            raise ImportError("12_cost_report.py yüklenemedi")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _COST_MOD = module
+    return _COST_MOD
+
+
 def embed_texts(client: OpenAI, texts: list[str]) -> list[list[float]]:
     """OpenAI bir batch'te birden fazla metin alır; sıra index ile korunur."""
-    response = client.embeddings.create(model=EMBEDDING_MODEL, input=texts)
-    ordered = sorted(response.data, key=lambda item: item.index)
-    return [item.embedding for item in ordered]
+    vectors, _tokens = _cost_mod().logged_embed_batch(
+        client, texts, EMBEDDING_MODEL, stage="embed_index"
+    )
+    return vectors
 
 
 def chroma_metadata(item: dict) -> dict:
@@ -182,6 +200,20 @@ def main() -> None:
                     ready.append((item, vector))
                 else:
                     missing_items.append(item)
+
+            # Bu noktada ready = sadece cache HIT.
+            if ready:
+                hit_tokens = sum(
+                    _cost_mod().estimate_tokens(str(item.get("text") or ""))
+                    for item, _vector in ready
+                )
+                _cost_mod().log_embed_call(
+                    stage="embed_index",
+                    model=EMBEDDING_MODEL,
+                    input_tokens=hit_tokens,
+                    cache_hit=True,
+                    n_items=len(ready),
+                )
 
             if missing_items:
                 texts = [str(item["text"]) for item in missing_items]
