@@ -4,6 +4,10 @@ data/
 # API anahtarı asla commit edilmez
 .env
 
+# Yerel mentor kuralları ve env şablonu GitHub'a gitmez
+.cursorrules
+.env.example
+
 # Python derleme artıkları
 __pycache__/
 
