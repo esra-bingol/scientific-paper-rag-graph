@@ -1,22 +1,24 @@
 """
-Naive Chroma indeksinde top-5 chunk bulur, GPT-4o-mini ile cevap üretir.
+Chroma indeksinde top-5 chunk bulur, GPT-4o-mini ile cevap üretir.
 
 Nasıl çalıştırılır:
     source .venv/bin/activate
-    python3 src/05_query.py
+    python3 src/05_query.py --collection papers_naive
+    python3 src/05_query.py --collection papers_grobid --question "..."
 
-Girdi:  chroma_db/ collection=papers_naive  +  klavyeden soru
-Önkoşul: python3 src/04_embed.py
+Girdi:  chroma_db/ + soru (--question veya klavye)
+Önkoşul: python3 src/04_embed.py --source naive|grobid
 
 Neden openai: soru embedding'i ve gpt-4o-mini aynı resmi SDK.
 Neden chromadb: cosine ile en yakın 5 chunk, harici servis yok.
-Neden diskcache: aynı soru/prompt'u tekrar ödememek.
+Neden diskcache: aynı soru/prompt'u tekrar ödememek (embedding cache paylaşılır).
 Neden python-dotenv: OPENAI_API_KEY koda gömülmez.
 recall@5 gold etiket olmadan ölçülmez; faithfulness için ayrı judge yok.
 """
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import os
 import time
@@ -34,8 +36,14 @@ LLM_CACHE_DIR = PROJECT_ROOT / "cache" / "llm"
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 CHAT_MODEL = "gpt-4o-mini"
-COLLECTION_NAME = "papers_naive"
 TOP_K = 5
+
+COLLECTION_ALIASES = {
+    "naive": "papers_naive",
+    "papers_naive": "papers_naive",
+    "grobid": "papers_grobid",
+    "papers_grobid": "papers_grobid",
+}
 
 PROMPT_TEMPLATE = """Verilen makale parçalarına dayanarak cevapla. 
 Cevap parçalarda yoksa "Bu bilgi verilen makalelerde yok" de.
@@ -59,11 +67,42 @@ def llm_cache_key(prompt: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def resolve_collection(name: str) -> str:
+    key = name.strip()
+    if key not in COLLECTION_ALIASES:
+        allowed = ", ".join(sorted(COLLECTION_ALIASES))
+        raise ValueError(f"bilinmeyen collection {name!r}; seçenekler: {allowed}")
+    return COLLECTION_ALIASES[key]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Chroma top-5 + GPT-4o-mini.")
+    parser.add_argument(
+        "--collection",
+        default="papers_naive",
+        help="papers_naive | papers_grobid (kisa: naive, grobid)",
+    )
+    parser.add_argument(
+        "--question",
+        default="",
+        help="Verilirse klavye yerine bu soru kullanılır.",
+    )
+    return parser.parse_args()
+
+
 def format_context(hits: list[dict]) -> str:
     parts: list[str] = []
     for index, hit in enumerate(hits, start=1):
+        extra = ""
+        if hit.get("section"):
+            extra += f" section={hit['section']}"
+        if hit.get("year") not in (None, ""):
+            extra += f" year={hit['year']}"
+        if hit.get("authors"):
+            extra += f" authors={hit['authors']}"
         parts.append(
-            f"[{index}] arxiv_id={hit['arxiv_id']} chunk_id={hit['chunk_id']}\n{hit['text']}"
+            f"[{index}] arxiv_id={hit['arxiv_id']} chunk_id={hit['chunk_id']}{extra}\n"
+            f"{hit['text']}"
         )
     return "\n\n".join(parts)
 
@@ -99,6 +138,14 @@ def chat_answer(client: OpenAI, cache: Cache, prompt: str) -> str:
 
 
 def main() -> None:
+    args = parse_args()
+    try:
+        collection_name = resolve_collection(args.collection)
+    except ValueError as exc:
+        print(f"HATA: {exc}")
+        print("Evaluation: recall@5=n/a  faithfulness=n/a")
+        return
+
     load_dotenv(PROJECT_ROOT / ".env")
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
@@ -111,12 +158,15 @@ def main() -> None:
         print("Evaluation: recall@5=n/a  faithfulness=n/a")
         return
 
-    try:
-        question = input("Soru: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print("\nHATA: soru alınamadı.")
-        print("Evaluation: recall@5=n/a  faithfulness=n/a")
-        return
+    if args.question.strip():
+        question = args.question.strip()
+    else:
+        try:
+            question = input("Soru: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nHATA: soru alınamadı.")
+            print("Evaluation: recall@5=n/a  faithfulness=n/a")
+            return
 
     if not question:
         print("HATA: boş soru.")
@@ -128,11 +178,14 @@ def main() -> None:
     chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     try:
         collection = chroma_client.get_collection(
-            name=COLLECTION_NAME,
+            name=collection_name,
             embedding_function=None,
         )
     except Exception as exc:
-        print(f"HATA: collection {COLLECTION_NAME!r} yok ({exc}). Önce: python3 src/04_embed.py")
+        print(
+            f"HATA: collection {collection_name!r} yok ({exc}). "
+            "Önce: python3 src/04_embed.py --source naive|grobid"
+        )
         print("Evaluation: recall@5=n/a  faithfulness=n/a")
         return
 
@@ -141,7 +194,7 @@ def main() -> None:
         print("Evaluation: recall@5=n/a  faithfulness=n/a")
         return
 
-    print(f"collection={COLLECTION_NAME!r}  n={collection.count()}  top_k={TOP_K}")
+    print(f"collection={collection_name!r}  n={collection.count()}  top_k={TOP_K}")
     print(f"embed={EMBEDDING_MODEL}  chat={CHAT_MODEL}")
 
     EMBED_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -179,6 +232,9 @@ def main() -> None:
                     "arxiv_id": arxiv_id,
                     "chunk_id": chunk_id,
                     "distance": distance,
+                    "section": str(meta.get("section") or ""),
+                    "year": meta.get("year"),
+                    "authors": str(meta.get("authors") or ""),
                 }
             )
 
@@ -186,9 +242,10 @@ def main() -> None:
         for rank, hit in enumerate(hits, start=1):
             dist = hit["distance"]
             dist_text = f"{dist:.4f}" if isinstance(dist, (int, float)) else "?"
+            section = hit.get("section") or "-"
             print(
                 f"  {rank}. arxiv_id={hit['arxiv_id']}  chunk_id={hit['chunk_id']}  "
-                f"cosine_distance={dist_text}"
+                f"section={section}  cosine_distance={dist_text}"
             )
 
         if not hits:

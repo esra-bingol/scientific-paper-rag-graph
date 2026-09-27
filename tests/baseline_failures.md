@@ -111,3 +111,47 @@ Atıf / karşıtlık kenarı yok; sadece cosine.
 | Multi-hop | 10 | yalnız Song; Clemente yok | “yok” | tek hop |
 
 On sorunun onunda dense top-5 ya yanlış küme getirdi, ya doğru kümeyi **filtre/ilişki/hop olmadan** getirdi. Cevabın bazen “yok” demesi başarı değil; mekanizma metadata ve grafa ihtiyaç duyuyor.
+
+---
+
+## E. Naive vs GROBID (aynı soru, 2026-09-27)
+
+Sistem: `src/05_query.py --collection papers_naive|papers_grobid`, top-5, `gpt-4o-mini`.  
+İndeks: 1818 naive chunk vs 243 GROBID chunk (`year`/`authors`/`section` metadata’da; **filtre henüz yok**, yine sadece cosine).  
+Soru embedding cache paylaşıldı; bağlam farklı olduğu için LLM cache ayrı.
+
+**Kısa karar:** GROBID “her yerde daha iyi” değil. Kaynakça halüsinasyonunu keser; yıl/yazar filtresi olmadan cosine hâlâ kırılır. Yazar adı gövde metninde yoksa GROBID retrieval **daha kötü** olur.
+
+### Soru 2 — 2020’den önce çıkmış külliyattaki Transformer makalelerinin başlıkları nedir?
+
+Gold: `1910.13634v1` (2019, *An Augmented Transformer Architecture…*).
+
+- **Naive:** Top-5 hepsi 2023–2024 (`2404`, `2305`, `2310`, `2306`; uzaklık 0.52–0.59). `1910` yok. Cevap kaynakçadan uydurma başlık: Nguyen & Salazar 2019; Music Transformer 2019.
+- **GROBID:** Top-5 `2507` abstract, `2502` method, `2103` ×3 (uzaklık 0.61–0.65). `1910` yine yok. Cevap: “yok” (abstain).
+- **Hangisi daha iyi:** GROBID **daha sadık** (uydurma 2019 başlığı yok). İkisi de **yanlış retrieval** — yıl cosine değil; `where year<2020` hâlâ yok.
+
+### Soru 8 — Vanilla Transformer’ı indoor oda sıcaklığı tahmininde yetersiz bulup değiştiren çalışma hangisi?
+
+Gold: `2310.20476v1` (Clemente et al.).
+
+- **Naive:** 5/5 doğru kağıt (0.42–0.50). Cevap: yok.
+- **GROBID:** 5/5 doğru kağıt; abstract + intro + results + method (0.47–0.61). Cevap: yine yok.
+- **Hangisi daha iyi:** Retrieval berabere (doğru kağıt). GROBID bölüm etiketi veriyor ama LLM iddiayı yine çıkarmadı. Tek cosine + daha uzun chunk yetmedi; ilişki kenarı / iddia cümlesi hâlâ yok.
+
+### Soru 6 — Zhao Song hangi yıl hangi makaleyi yayımlamış?
+
+Gold: `2411.07602v2` (2024, RoPE circuit complexity); Song yazar listesinde.
+
+- **Naive:** 4/5 doğru kağıt. Cevap yanlış: kaynakçadaki başka Song makaleleri (learning rate 2023, gradient complexity 2024). Külliyat başlığı yok.
+- **GROBID:** `2411` top-5’e **girmedi** (uzaklık 0.88–0.90, alakasız kağıtlar). Cevap: yok. Neden: “Zhao Song” GROBID `authors` metadata’sında var, **gömülen metinde yok** (header/`listBibl` atıldı). Cosine metadata okumaz.
+- **Hangisi daha iyi:** Sadakat için GROBID (uydurma atıf yok). Retrieval için naive (isim ham PDF’de geçiyor). Doğru çözüm: `where` ile `authors` / OpenAlex `author_id`, gövde cosine’ı değil.
+
+### Bu turun özeti
+
+| Soru | Naive retrieval | GROBID retrieval | Naive cevap | GROBID cevap | Daha iyi? |
+| --- | --- | --- | --- | --- | --- |
+| 2 (yıl+başlık) | 1910 yok; 2023–24 | 1910 yok; 2025/2021 | kaynakça uydurma | abstain | GROBID (sadakat) |
+| 8 (indoor) | 5/5 doğru kağıt | 5/5 doğru kağıt | yok | yok | berabere |
+| 6 (Zhao Song) | 4/5 doğru kağıt | doğru kağıt yok | yanlış atıf başlıkları | yok | karışık |
+
+GROBID `listBibl`’i düşürmek Q2/Q6 halüsinasyonunu keser. Yıl ve yazar **hâlâ vektör değil**; sonraki adım Chroma `where` (year, authors) + OpenAlex `author_id`. RRF/graf henüz yok.

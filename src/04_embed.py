@@ -1,5 +1,25 @@
+"""
+Chunk JSON'larını OpenAI ile gömer, Chroma'ya yazar.
+
+Nasıl çalıştırılır:
+    source .venv/bin/activate
+    python3 src/04_embed.py --source naive
+    python3 src/04_embed.py --source grobid
+
+Girdi:  data/chunks/chunks_{source}.json
+Çıktı:  chroma_db/  collection=papers_naive | papers_grobid
+Önkoşul: 03a (naive) veya 03b (grobid)
+
+Neden openai: text-embedding-3-small resmi SDK.
+Neden chromadb: yerel cosine indeks; harici servis yok.
+Neden diskcache: aynı metin tekrar gömülmesin (naive ve grobid aynı cache'i paylaşır).
+Neden python-dotenv: OPENAI_API_KEY koda gömülmez.
+recall@k / faithfulness: bu script retrieval yapmaz; n/a.
+"""
+
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -12,13 +32,25 @@ from openai import OpenAI
 from tqdm import tqdm
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CHUNKS_PATH = PROJECT_ROOT / "data" / "chunks" / "chunks_naive.json"
 CHROMA_DIR = PROJECT_ROOT / "chroma_db"
+# Tek cache: aynı cümle naive'de de grobid'de de bir kez ödenir.
 CACHE_DIR = PROJECT_ROOT / "cache" / "embeddings"
 
 EMBEDDING_MODEL = "text-embedding-3-small"
-COLLECTION_NAME = "papers_naive"
 BATCH_SIZE = 100
+
+SOURCES = {
+    "naive": {
+        "chunks": PROJECT_ROOT / "data" / "chunks" / "chunks_naive.json",
+        "collection": "papers_naive",
+        "howto": "python3 src/03a_chunk_naive.py",
+    },
+    "grobid": {
+        "chunks": PROJECT_ROOT / "data" / "chunks" / "chunks_grobid.json",
+        "collection": "papers_grobid",
+        "howto": "python3 src/03b_chunk_section.py",
+    },
+}
 
 
 def cache_key(text: str) -> str:
@@ -30,7 +62,7 @@ def cache_key(text: str) -> str:
 def load_chunks(path: Path) -> list[dict]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, list):
-        raise ValueError("chunks_naive.json bir liste olmalı")
+        raise ValueError(f"{path.name} bir liste olmalı")
     return raw
 
 
@@ -45,7 +77,47 @@ def embed_texts(client: OpenAI, texts: list[str]) -> list[list[float]]:
     return [item.embedding for item in ordered]
 
 
+def chroma_metadata(item: dict) -> dict:
+    """Chroma sadece str/int/float/bool kabul eder; authors listesi birleşir."""
+    meta: dict = {
+        "arxiv_id": str(item.get("arxiv_id") or ""),
+        "chunk_id": str(item["chunk_id"]),
+        "method": str(item.get("method") or ""),
+        "source_file": str(item.get("source_file") or ""),
+        "section": str(item.get("section") or ""),
+        "authors": "",
+    }
+    authors = item.get("authors")
+    if isinstance(authors, list):
+        meta["authors"] = "; ".join(str(name).strip() for name in authors if name)
+    elif authors:
+        meta["authors"] = str(authors)
+
+    year = item.get("year")
+    if isinstance(year, int):
+        meta["year"] = year
+    elif isinstance(year, str) and year.isdigit():
+        meta["year"] = int(year)
+    return meta
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Chunk'ları Chroma'ya göm.")
+    parser.add_argument(
+        "--source",
+        choices=sorted(SOURCES),
+        default="naive",
+        help="naive=chunks_naive/papers_naive, grobid=chunks_grobid/papers_grobid",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
+    spec = SOURCES[args.source]
+    chunks_path = spec["chunks"]
+    collection_name = spec["collection"]
+
     load_dotenv(PROJECT_ROOT / ".env")
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
@@ -54,24 +126,25 @@ def main() -> None:
         print("Evaluation: recall@k=n/a  faithfulness=n/a  (henüz retrieval yok).")
         return
 
-    if not CHUNKS_PATH.exists():
-        print(f"HATA: {CHUNKS_PATH} yok. Önce: python3 src/03a_chunk_naive.py")
+    if not chunks_path.exists():
+        print(f"HATA: {chunks_path} yok. Önce: {spec['howto']}")
         print("0 chunk embed edildi (0 cached)")
         print("Evaluation: recall@k=n/a  faithfulness=n/a  (henüz retrieval yok).")
         return
 
     try:
-        chunks = load_chunks(CHUNKS_PATH)
+        chunks = load_chunks(chunks_path)
     except Exception as exc:
         print(f"HATA: chunk JSON okunamadı: {exc}")
         print("0 chunk embed edildi (0 cached)")
         print("Evaluation: recall@k=n/a  faithfulness=n/a  (henüz retrieval yok).")
         return
 
+    print(f"source={args.source!r}  dosya={chunks_path.name}")
     print(f"Chunk sayısı: {len(chunks)}")
-    print(f"model={EMBEDDING_MODEL}  batch={BATCH_SIZE}  collection={COLLECTION_NAME!r}")
+    print(f"model={EMBEDDING_MODEL}  batch={BATCH_SIZE}  collection={collection_name!r}")
     print(f"Chroma: {CHROMA_DIR}")
-    print(f"Cache:  {CACHE_DIR}")
+    print(f"Cache (paylaşılan): {CACHE_DIR}")
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     CHROMA_DIR.mkdir(parents=True, exist_ok=True)
@@ -80,7 +153,7 @@ def main() -> None:
     chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     # embedding_function=None: vektörü biz veriyoruz; Chroma MiniLM indirmesin.
     collection = chroma_client.get_or_create_collection(
-        name=COLLECTION_NAME,
+        name=collection_name,
         embedding_function=None,
         metadata={"hnsw:space": "cosine"},
     )
@@ -91,7 +164,7 @@ def main() -> None:
 
     with Cache(str(CACHE_DIR)) as embedding_cache:
         batches = batched(chunks, BATCH_SIZE)
-        for batch in tqdm(batches, desc="Embedding"):
+        for batch in tqdm(batches, desc=f"Embedding {args.source}"):
             ready: list[tuple[dict, list[float]]] = []
             missing_items: list[dict] = []
 
@@ -132,15 +205,7 @@ def main() -> None:
             ids = [str(item["chunk_id"]) for item, _ in ready]
             embeddings = [vector for _, vector in ready]
             documents = [str(item["text"]) for item, _ in ready]
-            metadatas = [
-                {
-                    "arxiv_id": str(item.get("arxiv_id") or ""),
-                    "chunk_id": str(item["chunk_id"]),
-                    "source_file": str(item.get("source_file") or ""),
-                    "method": str(item.get("method") or "pypdf"),
-                }
-                for item, _ in ready
-            ]
+            metadatas = [chroma_metadata(item) for item, _ in ready]
             try:
                 collection.upsert(
                     ids=ids,
